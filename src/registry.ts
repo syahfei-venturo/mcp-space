@@ -4,6 +4,27 @@
  */
 
 import { SpaceVenturoClient } from "./client.js";
+import { z } from "zod";
+
+const ProjectSchema = z.object({
+  id: z.number().or(z.string()),
+  name: z.string(),
+  slug: z.string().nullable().optional(),
+  id_project_team: z.number().or(z.string()).nullable().optional()
+}).passthrough();
+
+const IssueSchema = z.object({
+  id: z.number().or(z.string()),
+  name: z.string(),
+  code_issue: z.string().nullable().optional(),
+  point: z.number().nullable().optional().or(z.string()),
+  duedate: z.string().nullable().optional(),
+  user_auth_name: z.string().nullable().optional(),
+  tag_name: z.string().nullable().optional(),
+  status_sprint: z.object({
+    name: z.string().nullable().optional()
+  }).passthrough().nullable().optional()
+}).passthrough();
 
 export interface ParamDef {
   type: string;
@@ -36,7 +57,8 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         
         const res = await cli.get<any>("/api/v1/project-team", query);
         if (res.data?.dataProject) {
-            res.data = res.data.dataProject.map((p: any) => ({
+            const parsedData = z.array(ProjectSchema).parse(res.data.dataProject);
+            res.data = parsedData.map((p) => ({
                 id: p.id,
                 name: p.name,
                 slug: p.slug,
@@ -91,7 +113,8 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         const res = await cli.get<any>("/api/v3/sprint-issues", query);
         
         if (res.data?.dataIssues) {
-            res.data.dataIssues = res.data.dataIssues.map((issue: any) => ({
+            const parsedIssues = z.array(IssueSchema).parse(res.data.dataIssues);
+            res.data.dataIssues = parsedIssues.map((issue) => ({
                 id: issue.id,
                 name: issue.name,
                 code: issue.code_issue,

@@ -154,7 +154,8 @@ export class SpaceVenturoClient {
   async get<T>(
     path: string,
     params: Record<string, string | number | boolean | undefined | null> = {},
-    service: "space" | "timebox" = "space"
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 60000
   ): Promise<ApiResponse<T>> {
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -165,22 +166,22 @@ export class SpaceVenturoClient {
 
     const queryString = searchParams.toString();
     const fullPath = queryString ? `${path}?${queryString}` : path;
-    return this.request<T>(fullPath, { method: "GET" }, service);
+    return this.request<T>(fullPath, { method: "GET" }, service, timeoutMs);
   }
 
-  async post<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
-    return this.request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }, service);
+  async post<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
   }
 
-  async put<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
-    return this.request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }, service);
+  async put<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
   }
 
-  async patch<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
-    return this.request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, service);
+  async patch<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
   }
 
-  async delete<T>(path: string, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
-    return this.request<T>(path, { method: "DELETE" }, service);
+  async delete<T>(path: string, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "DELETE" }, service, timeoutMs);
   }
 }
