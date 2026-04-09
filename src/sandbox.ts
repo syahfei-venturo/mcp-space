@@ -8,10 +8,14 @@ export class SecureSandbox {
     private registry: FunctionDef[]
   ) {}
 
-  async execute(code: string): Promise<unknown> {
+  async execute(code: string, timeoutMs = 5000): Promise<unknown> {
     const QuickJS = await getQuickJS();
     const runtime = QuickJS.newRuntime();
     const vm = runtime.newContext();
+
+    // Interrupt handler to enforce CPU timeout
+    const deadline = Date.now() + timeoutMs;
+    runtime.setInterruptHandler(() => Date.now() > deadline || undefined);
 
     // Track pending host calls to ensure they are cleaned up before vm.dispose()
     const pendingCalls: Promise<void>[] = [];
@@ -22,7 +26,20 @@ export class SecureSandbox {
         const callRegistryHandle = scope.manage(vm.newFunction("__callRegistry", (nameHandle, paramsJsonHandle) => {
           const name = vm.getString(nameHandle);
           const paramsJson = vm.getString(paramsJsonHandle);
-          const params = JSON.parse(paramsJson);
+
+          let params: unknown;
+          try {
+            params = JSON.parse(paramsJson);
+          } catch {
+            const deferred = vm.newPromise();
+            const errHandle = vm.newString(`Invalid JSON params for function ${name}`);
+            deferred.reject(errHandle);
+            errHandle.dispose();
+            runtime.executePendingJobs();
+            const p = deferred.handle.dup();
+            deferred.dispose();
+            return p;
+          }
 
           const deferred = vm.newPromise();
 
@@ -31,6 +48,7 @@ export class SecureSandbox {
              const errHandle = vm.newString(`Function ${name} not found`);
              deferred.reject(errHandle);
              errHandle.dispose();
+             runtime.executePendingJobs();
              const p = deferred.handle.dup();
              deferred.dispose();
              return p;
@@ -38,7 +56,7 @@ export class SecureSandbox {
 
           const callPromise = (async () => {
             try {
-              const res = await fn.handler(this.client, params);
+              const res = await fn.handler(this.client, params as Record<string, unknown>);
               const resStr = JSON.stringify(res);
               const resHandle = vm.newString(resStr);
               deferred.resolve(resHandle);
@@ -96,11 +114,14 @@ export class SecureSandbox {
 
         const finalResult = vm.dump(promiseRes.value);
         promiseRes.value.dispose();
+
+        // Wait for all host-side async calls to finish before the scope
+        // disposes handles — avoids use-after-free on a disposed vm.
+        await Promise.all(pendingCalls);
+
         return finalResult;
       });
 
-      // Wait for any remaining host-side cleanup in the registry bridge
-      await Promise.all(pendingCalls);
       return result;
     } finally {
       vm.dispose();
