@@ -98,13 +98,13 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
     },
     async ({ code }) => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...fnArgs: unknown[]) => Promise<unknown>;
-        const keys = Object.keys(fnContext);
-        const values = Object.values(fnContext);
-        const wrapped = `return (async () => { ${code} })()`;
-        const fn = new AsyncFunction(...keys, wrapped);
-        const result = await fn(...values);
+        const vm = await import("node:vm");
+        // Create an isolated context with ONLY the registry functions
+        const context = vm.createContext(fnContext);
+        // Wrap the payload in an async IIFE
+        const script = new vm.Script(`(async () => { \n${code}\n })()`);
+        // Run with a hard timeout to prevent infinite loops (DoS)
+        const result = await script.runInContext(context, { timeout: 30000 });
         return {
           content: [
             {
