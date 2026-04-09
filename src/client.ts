@@ -4,6 +4,13 @@
  * - Logs in on first request if auth token is missing or if encountering 401
  */
 
+export interface ApiResponse<T> {
+  status_code: number;
+  data: T;
+  message: string;
+  settings: unknown[];
+}
+
 interface LoginResponse {
   status_code: number;
   data: {
@@ -85,79 +92,95 @@ export class SpaceVenturoClient {
   // ── HTTP ──────────────────────────────────────────────────────────────────
 
   async request<T>(
-    method: string,
     path: string,
-    body?: unknown,
-    query?: Record<string, string | number | boolean | undefined | null>,
-    service: "space" | "timebox" = "space"
-  ): Promise<T> {
+    options: RequestInit = {},
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 60000 // Default 60 seconds
+  ): Promise<ApiResponse<T>> {
     await this.ensureAuth();
 
-    const base = service === "timebox" ? this.timeboxBaseUrl : this.baseUrl;
-    let url = `${base}${path}`;
-    if (query) {
-      const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(query)) {
-        if (v !== undefined && v !== null && v !== "") {
-          params.set(k, String(v));
-        }
-      }
-      const qs = params.toString();
-      if (qs) url += `?${qs}`;
-    }
+    const baseUrl = service === "timebox" ? this.timeboxBaseUrl : this.baseUrl;
+    const url = `${baseUrl}${path}`;
+    
+    // Log URL to stderr for transparency
+    console.error(`[MCP] Requesting ${options.method || 'GET'} ${url}`);
 
-    const doRequest = async (token: string): Promise<Response> => {
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${token}`,
-      };
-      if (body !== undefined) {
-        headers["Content-Type"] = "application/json";
-      }
-      return fetch(url, {
-        method,
+    const headers = {
+      ...options.headers,
+      Authorization: `Bearer ${this.accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    } as Record<string, string>;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
       });
-    };
 
-    let res = await doRequest(this.accessToken!);
+      if (response.status === 401) {
+        clearTimeout(timeoutId);
+        // Token expired? Try re-login once.
+        this.accessToken = null;
+        await this.login();
+        return this.request<T>(path, options, service, timeoutMs);
+      }
 
-    // 401 Unauthorized → re-login once and retry
-    if (res.status === 401) {
-      this.accessToken = null; // Clear old token
-      await this.login();
-      res = await doRequest(this.accessToken!);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error ${response.status}: ${errorText.substring(0, 500)}`);
+      }
+
+      if (response.status === 204) {
+        return { status_code: 204, data: null as any, message: "No Content", settings: [] };
+      }
+
+      const data = (await response.json()) as ApiResponse<T>;
+      return data;
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error(`Request timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async get<T>(
+    path: string,
+    params: Record<string, string | number | boolean | undefined | null> = {},
+    service: "space" | "timebox" = "space"
+  ): Promise<ApiResponse<T>> {
+    const searchParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, String(value));
+      }
     }
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`API error ${res.status}: ${text}`);
-    }
-
-    // 204 No Content
-    if (res.status === 204) return null as T;
-
-    return res.json() as Promise<T>;
+    const queryString = searchParams.toString();
+    const fullPath = queryString ? `${path}?${queryString}` : path;
+    return this.request<T>(fullPath, { method: "GET" }, service);
   }
 
-  // Convenience methods
-  get<T>(path: string, query?: Record<string, string | number | boolean | undefined | null>, service: "space" | "timebox" = "space"): Promise<T> {
-    return this.request<T>("GET", path, undefined, query, service);
+  async post<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }, service);
   }
 
-  post<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<T> {
-    return this.request<T>("POST", path, body, undefined, service);
+  async put<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }, service);
   }
 
-  put<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<T> {
-    return this.request<T>("PUT", path, body, undefined, service);
+  async patch<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, service);
   }
 
-  delete<T>(path: string, service: "space" | "timebox" = "space"): Promise<T> {
-    return this.request<T>("DELETE", path, undefined, undefined, service);
-  }
-
-  patch<T>(path: string, body?: unknown, service: "space" | "timebox" = "space"): Promise<T> {
-    return this.request<T>("PATCH", path, body, undefined, service);
+  async delete<T>(path: string, service: "space" | "timebox" = "space"): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: "DELETE" }, service);
   }
 }

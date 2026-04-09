@@ -68,9 +68,24 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (!query.project_id) throw new Error("project_id is required either via arguments or default settings");
         
         if (p.t_sprint_id !== undefined) query.t_sprint_id = p.t_sprint_id as number;
-        if (p.start_date !== undefined) query.start_date = p.start_date as string;
-        if (p.end_date !== undefined) query.end_date = p.end_date as string;
-        if (p.isUncategorized !== undefined) query.isUncategorized = p.isUncategorized as boolean;
+        
+        // --- 🛡️ Hardening: Tanggal wajib diisi jika Sprint ID kosong ---
+        if (p.start_date !== undefined) {
+          query.start_date = p.start_date as string;
+        } else if (p.t_sprint_id === undefined) {
+          query.start_date = new Date().toISOString().split('T')[0];
+        }
+
+        if (p.end_date !== undefined) {
+          query.end_date = p.end_date as string;
+        } else if (p.t_sprint_id === undefined) {
+          query.end_date = new Date().toISOString().split('T')[0];
+        }
+
+        // --- 🛡️ Hardening: Uncategorized diset false secara default ---
+        // Penarikan data backlog tanpa kategori sering menyebabkan 504 Timeout.
+        query.isUncategorized = p.isUncategorized !== undefined ? (p.isUncategorized as boolean) : false;
+        
         if (p.department_id !== undefined) query.department_id = p.department_id as number;
         
         const res = await cli.get<any>("/api/v3/sprint-issues", query);
