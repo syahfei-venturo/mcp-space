@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { SpaceVenturoClient } from "./client.js";
 import { buildRegistry } from "./registry.js";
+import { SecureSandbox } from "./sandbox.js";
 
 async function main() {
   const client = new SpaceVenturoClient();
@@ -79,11 +80,6 @@ async function main() {
   // Executes arbitrary JavaScript code with all registry functions injected
   // as async functions in scope. Supports multi-step operations in one call.
 
-  const fnContext: Record<string, (params?: Record<string, unknown>) => Promise<unknown>> = {};
-  for (const fn of registry) {
-    fnContext[fn.name] = (params: Record<string, unknown> = {}) => fn.handler(client, params);
-  }
-
   server.tool(
     "execute",
     `Execute JavaScript code with all Space Venturo API functions available as async functions in scope.
@@ -98,13 +94,9 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
     },
     async ({ code }) => {
       try {
-        const vm = await import("node:vm");
-        // Create an isolated context with ONLY the registry functions
-        const context = vm.createContext(fnContext);
-        // Wrap the payload in an async IIFE
-        const script = new vm.Script(`(async () => { \n${code}\n })()`);
-        // Run with a hard timeout to prevent infinite loops (DoS)
-        const result = await script.runInContext(context, { timeout: 30000 });
+        const sandbox = new SecureSandbox(client, registry);
+        const result = await sandbox.execute(code);
+
         return {
           content: [
             {
