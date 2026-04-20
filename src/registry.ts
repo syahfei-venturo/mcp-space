@@ -73,41 +73,26 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
 
     {
       name: "get_sprint_issues",
-      description: "List all sprint issues / tasks. Response is filtered to show essential fields only.",
+      description: "List all sprint issues / tasks filtered by date range. Response is filtered to show essential fields only.",
       params: {
         project_id: { type: "number", description: "Filter by project ID", required: false },
-        t_sprint_id: { type: "number", description: "Filter by sprint ID (optional)", required: false },
-        start_date: { type: "string", description: "Filter start date (optional)", required: false },
-        end_date: { type: "string", description: "Filter end date (optional)", required: false },
+        start_date: { type: "string", description: "Filter start date YYYY-MM-DD (defaults to today)", required: false },
+        end_date: { type: "string", description: "Filter end date YYYY-MM-DD (defaults to today)", required: false },
         isUncategorized: { type: "boolean", description: "Show uncategorized issues", required: false },
         department_id: { type: "number", description: "Filter by department ID", required: false },
       },
       handler: async (cli, p) => {
+        const today = new Date().toISOString().split('T')[0];
         const query: Record<string, string | number | boolean | undefined | null> = {
           project_id: (p.project_id as number) ?? cli.defaultProjectId,
+          start_date: (p.start_date as string) ?? today,
+          end_date: (p.end_date as string) ?? today,
         };
-        
+
         if (!query.project_id) throw new Error("project_id is required either via arguments or default settings");
-        
-        if (p.t_sprint_id !== undefined) query.t_sprint_id = p.t_sprint_id as number;
-        
-        // --- 🛡️ Hardening: Tanggal wajib diisi jika Sprint ID kosong ---
-        if (p.start_date !== undefined) {
-          query.start_date = p.start_date as string;
-        } else if (p.t_sprint_id === undefined) {
-          query.start_date = new Date().toISOString().split('T')[0];
-        }
 
-        if (p.end_date !== undefined) {
-          query.end_date = p.end_date as string;
-        } else if (p.t_sprint_id === undefined) {
-          query.end_date = new Date().toISOString().split('T')[0];
-        }
-
-        // --- 🛡️ Hardening: Uncategorized diset false secara default ---
-        // Penarikan data backlog tanpa kategori sering menyebabkan 504 Timeout.
         query.isUncategorized = p.isUncategorized !== undefined ? (p.isUncategorized as boolean) : false;
-        
+
         if (p.department_id !== undefined) query.department_id = p.department_id as number;
         
         const res = await cli.get<any>("/api/v3/sprint-issues", query);
@@ -131,27 +116,38 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
 
     {
       name: "create_issue",
-      description: "Create a new issue/task in a sprint.",
+      description: "Create a new issue/task. Use get_sprints to find a valid sprint ID for the project.",
       params: {
         name: { type: "string", description: "Issue title/name", required: true },
-        t_sprint_id: { type: "number", description: "Sprint ID where the issue belongs", required: true },
-        description: { type: "string", description: "Detailed description of the issue (optional)", required: false },
+        project_id: { type: "number", description: "Project ID", required: true },
+        t_sprint_id: { type: "number", description: "Sprint ID (optional, null for backlog)", required: false },
+        description: { type: "string", description: "Detailed description (optional, supports HTML)", required: false },
         assignee_id: { type: "number", description: "Assignee user ID (optional)", required: false },
         point: { type: "number", description: "Story points (optional, defaults to 0)", required: false },
         tag_id: { type: "number", description: "Tag ID (optional)", required: false },
         feature_id: { type: "number", description: "Feature ID (optional)", required: false },
       },
       handler: async (cli, p) => {
+        await cli.ensureAuth();
+        const projectId = (p.project_id as number) ?? cli.defaultProjectId;
+        if (!projectId) throw new Error("project_id is required either via arguments or default settings");
         const body = {
             name: p.name,
-            t_sprint_id: p.t_sprint_id,
-            description: p.description ?? "",
-            assignee_id: p.assignee_id ?? null,
-            point: p.point ?? 0,
-            tag_id: p.tag_id ?? null,
-            feature_id: p.feature_id ?? null
+            m_project_id: String(projectId),
+            t_sprint_id: (p.t_sprint_id as number) ?? null,
+            background: p.description ? `<p>${p.description}</p>` : "<p></p>",
+            user_auth_id: (p.assignee_id as number) ?? 0,
+            created_by: cli.userId,
+            point: (p.point as number) ?? 0,
+            t_tag_id: (p.tag_id as number) ?? null,
+            feature_issue: (p.feature_id as number) ?? null,
+            type: "1",
+            duedate: null,
+            issues_acceptance: [],
+            case_id: 0,
+            case_step_id: null,
         };
-        return cli.post("/api/v3/issues", body);
+        return cli.post("/api/v1/issues", body);
       },
     },
 
@@ -170,13 +166,17 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       destructive: true,
       handler: async (cli, p) => {
         if (!p.confirm) throw new Error("Set confirm: true to proceed with this update action.");
-        
-        const { id, confirm, ...bodyUpdates } = p;
-        
+
+        const { id, confirm, description, assignee_id, tag_id, ...rest } = p;
+        const bodyUpdates: Record<string, unknown> = { ...rest };
+
+        if (description !== undefined) bodyUpdates.background = `<p>${description}</p>`;
+        if (assignee_id !== undefined) bodyUpdates.user_auth_id = assignee_id;
+        if (tag_id !== undefined) bodyUpdates.t_tag_id = tag_id;
+
         if (Object.keys(bodyUpdates).length === 0) {
             throw new Error("No update fields provided.");
         }
-        // The Venturo API uses PATCH on /api/v1/issues/{id} for updates.
         return cli.patch(`/api/v1/issues/${id}`, bodyUpdates);
       },
     },
@@ -493,23 +493,17 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/project-team`, { 
-            m_project_id: p.project_id as number,
-            user_auth_id: cli.userId,
-            akses_nama: cli.aksesNama
-        });
+        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, { id: p.project_id as number, with_sa: true });
         if (!res.data) return res;
-        
-        // Filter only for the desired project and simplify
+
         return {
           ...res,
-          data: res.data
-            .filter((item: any) => Number(item.m_project_id) === p.project_id)
-            .map((item: any) => ({
-                user_id: item.user_auth_id,
-                name: item.user_auth_name,
-                shortname: item.user_shortname
-            }))
+          data: (res.data.project_team ?? []).map((m: any) => ({
+            user_id: m.user_auth_id,
+            name: m.user?.nama,
+            email: m.user?.email,
+            role_id: m.m_roles_id,
+          }))
         };
       },
     },

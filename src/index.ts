@@ -95,7 +95,7 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
     async ({ code }) => {
       try {
         const sandbox = new SecureSandbox(client, registry);
-        const result = await sandbox.execute(code);
+        const result = await sandbox.execute(code, 90000);
 
         return {
           content: [
