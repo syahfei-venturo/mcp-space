@@ -40,17 +40,22 @@ async function main() {
           name: f.name,
           description: f.description,
           destructive: f.destructive ?? false,
-          params: Object.fromEntries(
-            Object.entries(f.params).map(([k, v]) => [
-              k,
-              {
-                type: v.type,
-                description: v.description,
-                required: v.required,
-                ...(v.enum ? { enum: v.enum } : {}),
-              },
-            ])
-          ),
+          inputSchema: {
+            type: "object",
+            properties: Object.fromEntries(
+              Object.entries(f.params).map(([k, v]) => [
+                k,
+                {
+                  type: v.type,
+                  description: v.description,
+                  ...(v.enum ? { enum: v.enum } : {}),
+                },
+              ])
+            ),
+            required: Object.entries(f.params)
+              .filter(([_, v]) => v.required)
+              .map(([k]) => k),
+          },
         }));
 
       if (results.length === 0) {
