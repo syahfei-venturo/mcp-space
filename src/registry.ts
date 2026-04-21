@@ -162,18 +162,23 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         assignee_id: { type: "number", description: "New assignee user ID (optional)", required: false },
         point: { type: "number", description: "New story points (optional)", required: false },
         tag_id: { type: "number", description: "New tag ID (optional)", required: false },
+        duedate: { type: "string", description: "New due date in YYYY-MM-DD (optional)", required: false },
+        t_sprint_id: { type: "number", description: "New sprint ID (optional, null to move to backlog)", required: false },
+        feature_id: { type: "number", description: "New feature ID (optional)", required: false },
         confirm: { type: "boolean", description: "Must be true to confirm update", required: true },
       },
       destructive: true,
       handler: async (cli, p) => {
         if (!p.confirm) throw new Error("Set confirm: true to proceed with this update action.");
 
-        const { id, confirm, description, assignee_id, tag_id, ...rest } = p;
+        const { id, confirm, description, assignee_id, tag_id, feature_id, t_sprint_id, ...rest } = p;
         const bodyUpdates: Record<string, unknown> = { ...rest };
 
         if (description !== undefined) bodyUpdates.background = `<p>${description}</p>`;
         if (assignee_id !== undefined) bodyUpdates.user_auth_id = assignee_id;
         if (tag_id !== undefined) bodyUpdates.t_tag_id = tag_id;
+        if (feature_id !== undefined) bodyUpdates.feature_issue = feature_id;
+        if (t_sprint_id !== undefined) bodyUpdates.t_sprint_id = t_sprint_id;
 
         if (Object.keys(bodyUpdates).length === 0) {
             throw new Error("No update fields provided.");
