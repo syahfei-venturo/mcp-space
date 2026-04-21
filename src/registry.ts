@@ -126,6 +126,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         point: { type: "number", description: "Story points (optional, defaults to 0)", required: false },
         tag_id: { type: "number", description: "Tag ID (optional)", required: false },
         feature_id: { type: "number", description: "Feature ID (optional)", required: false },
+        duedate: { type: "string", description: "Due date in YYYY-MM-DD (optional)", required: false },
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
@@ -142,7 +143,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
             t_tag_id: (p.tag_id as number) ?? null,
             feature_issue: (p.feature_id as number) ?? null,
             type: "1",
-            duedate: null,
+            duedate: (p.duedate as string) ?? null,
             issues_acceptance: [],
             case_id: 0,
             case_step_id: null,
