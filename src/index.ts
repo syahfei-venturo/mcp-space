@@ -7,7 +7,7 @@ import { SecureSandbox } from "./sandbox.js";
 
 async function main() {
   const client = new SpaceVenturoClient();
-  const registry = buildRegistry(client);
+  const registry = buildRegistry();
 
   const server = new McpServer({
     name: "mcp-space",
@@ -33,7 +33,7 @@ async function main() {
         .filter((f) => {
           const searchableText = `${f.name} ${f.description} ${Object.keys(f.params).join(" ")}`.toLowerCase();
           // Match if ALL keywords are found anywhere in the searchable text
-          return keywords.every(kw => searchableText.includes(kw));
+          return keywords.every((kw) => searchableText.includes(kw));
         })
         .slice(0, limit)
         .map((f) => ({
@@ -50,10 +50,10 @@ async function main() {
                   description: v.description,
                   ...(v.enum ? { enum: v.enum } : {}),
                 },
-              ])
+              ]),
             ),
             required: Object.entries(f.params)
-              .filter(([_, v]) => v.required)
+              .filter(([, v]) => v.required)
               .map(([k]) => k),
           },
         }));
@@ -77,7 +77,7 @@ async function main() {
           },
         ],
       };
-    }
+    },
   );
 
   // ── Tool 2: execute ───────────────────────────────────────────────────────
@@ -93,9 +93,11 @@ All registry functions can be called directly: e.g. \`await get_sprint_issues()\
 Destructive functions still require \`confirm: true\` in their params.
 Use \`return\` to return a value — the result will be serialized as JSON.`,
     {
-      code: z.string().describe(
-        "JavaScript code to execute. All registry functions are available as async functions. Use `return` to return a value."
-      ),
+      code: z
+        .string()
+        .describe(
+          "JavaScript code to execute. All registry functions are available as async functions. Use `return` to return a value.",
+        ),
     },
     async ({ code }) => {
       try {
@@ -106,9 +108,10 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
           content: [
             {
               type: "text",
-              text: result === null || result === undefined
-                ? "Success (no content returned)."
-                : JSON.stringify(result, null, 2),
+              text:
+                result === null || result === undefined
+                  ? "Success (no content returned)."
+                  : JSON.stringify(result, null, 2),
             },
           ],
         };
@@ -118,13 +121,15 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
           content: [{ type: "text", text: `Error: ${msg}` }],
         };
       }
-    }
+    },
   );
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error(`MCP Space Venturo v1.0.0 running on stdio (2 tools: search + execute, ${registry.length} functions registered)`);
+  console.error(
+    `MCP Space Venturo v1.0.0 running on stdio (2 tools: search + execute, ${registry.length} functions registered)`,
+  );
 }
 
 main().catch((err) => {

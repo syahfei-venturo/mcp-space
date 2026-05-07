@@ -1,4 +1,4 @@
-import { getQuickJS, QuickJSContext, QuickJSRuntime, Scope } from "quickjs-emscripten";
+import { getQuickJS, Scope } from "quickjs-emscripten";
 import { SpaceVenturoClient } from "./client.js";
 import { FunctionDef } from "./registry.js";
 

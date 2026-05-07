@@ -6,6 +6,8 @@
 import { SpaceVenturoClient } from "./client.js";
 import { z } from "zod";
 
+// ── Zod Schemas ────────────────────────────────────────────────────────────
+
 const ProjectSchema = z
   .object({
     id: z.number().or(z.string()),
@@ -34,6 +36,114 @@ const IssueSchema = z
   })
   .passthrough();
 
+// ── Raw API Response Types ─────────────────────────────────────────────────
+
+interface RawProjectListData {
+  dataProject?: unknown[];
+}
+
+interface RawSprintIssuesData {
+  dataIssues?: unknown[];
+}
+
+interface RawIssueDetail {
+  id: number;
+  code_issue?: string;
+  name: string;
+  background?: string;
+  status_sprint?: { name?: string };
+  project_name?: string;
+  user_auth_name?: string;
+  point?: number;
+  tag_name?: string;
+  duedate?: string;
+  is_solved?: unknown;
+  is_urgent?: unknown;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface RawTeamMember {
+  user_auth_id?: number;
+  nama?: string;
+  jabatan_nama?: string;
+  jabatan?: string;
+}
+
+interface RawTimeboxProject {
+  id: number;
+  name: string;
+}
+
+interface RawTimeboxTask {
+  id: number;
+  name: string;
+  point?: number;
+  jam?: string;
+  date?: string;
+  completed?: boolean;
+  m_project_id?: number;
+}
+
+interface RawScheduledData {
+  overdue?: RawTimeboxTask[];
+  today?: RawTimeboxTask[];
+  tomorrow?: RawTimeboxTask[];
+  afterTomorrow?: RawTimeboxTask[];
+}
+
+interface RawSquadMember {
+  user_auth_id?: number;
+  nama?: string;
+  jabatan_nama?: string;
+  jabatan?: string;
+}
+
+interface RawSprint {
+  id: number;
+  name: string;
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
+interface RawTagListData {
+  list?: RawTag[];
+}
+
+interface RawTag {
+  id: number;
+  name: string;
+  color?: string;
+}
+
+interface RawRole {
+  id: number;
+  name: string;
+}
+
+interface RawModule {
+  id: number;
+  ParentFeature?: string;
+  ChildName?: string;
+  ChildFeature?: Array<{ id: number; ChildName: string }>;
+}
+
+interface RawProjectDetail {
+  id: number;
+  name: string;
+  description?: string;
+  project_team?: RawProjectTeamMember[];
+}
+
+interface RawProjectTeamMember {
+  user_auth_id?: number;
+  m_roles_id?: number;
+  user?: { nama?: string; email?: string };
+}
+
+// ── Public Types ───────────────────────────────────────────────────────────
+
 export interface ParamDef {
   type: string;
   description: string;
@@ -49,7 +159,9 @@ export interface FunctionDef {
   handler: (client: SpaceVenturoClient, params: Record<string, unknown>) => Promise<unknown>;
 }
 
-export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
+// ── Registry ───────────────────────────────────────────────────────────────
+
+export function buildRegistry(): FunctionDef[] {
   return [
     // ── Projects ──────────────────────────────────────────────────────────
 
@@ -63,15 +175,18 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (cli.userId) query.user_auth_id = cli.userId;
         if (cli.aksesNama) query.akses_nama = cli.aksesNama;
 
-        const res = await cli.get<any>("/api/v1/project-team", query);
+        const res = await cli.get<RawProjectListData>("/api/v1/project-team", query);
         if (res.data?.dataProject) {
           const parsedData = z.array(ProjectSchema).parse(res.data.dataProject);
-          res.data = parsedData.map((p) => ({
-            id: p.id,
-            name: p.name,
-            slug: p.slug,
-            id_project_team: p.id_project_team,
-          }));
+          return {
+            ...res,
+            data: parsedData.map((p) => ({
+              id: p.id,
+              name: p.name,
+              slug: p.slug,
+              id_project_team: p.id_project_team,
+            })),
+          };
         }
         return res;
       },
@@ -108,20 +223,26 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
 
         if (p.department_id !== undefined) query.department_id = p.department_id as number;
 
-        const res = await cli.get<any>("/api/v3/sprint-issues", query);
+        const res = await cli.get<RawSprintIssuesData>("/api/v3/sprint-issues", query);
 
         if (res.data?.dataIssues) {
           const parsedIssues = z.array(IssueSchema).parse(res.data.dataIssues);
-          res.data.dataIssues = parsedIssues.map((issue) => ({
-            id: issue.id,
-            name: issue.name,
-            code: issue.code_issue,
-            point: issue.point,
-            duedate: issue.duedate,
-            assignee: issue.user_auth_name,
-            tag: issue.tag_name,
-            status: issue.status_sprint?.name || "Unknown",
-          }));
+          return {
+            ...res,
+            data: {
+              ...res.data,
+              dataIssues: parsedIssues.map((issue) => ({
+                id: issue.id,
+                name: issue.name,
+                code: issue.code_issue,
+                point: issue.point,
+                duedate: issue.duedate,
+                assignee: issue.user_auth_name,
+                tag: issue.tag_name,
+                status: issue.status_sprint?.name || "Unknown",
+              })),
+            },
+          };
         }
         return res;
       },
@@ -134,7 +255,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         name: { type: "string", description: "Issue title/name", required: true },
         project_id: { type: "number", description: "Project ID", required: true },
         t_sprint_id: { type: "number", description: "Sprint ID (optional, null for backlog)", required: false },
-        description: { type: "string", description: "Detailed description (optional, supports HTML)", required: false },
+        description: {
+          type: "string",
+          description: "Detailed description (optional, supports HTML)",
+          required: false,
+        },
         assignee_id: { type: "number", description: "Assignee user ID (optional)", required: false },
         point: { type: "number", description: "Story points (optional, defaults to 0)", required: false },
         tag_id: { type: "number", description: "Tag ID (optional)", required: false },
@@ -188,19 +313,29 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       handler: async (cli, p) => {
         if (!p.confirm) throw new Error("Set confirm: true to proceed with this update action.");
 
-        const { id, confirm, description, assignee_id, tag_id, feature_id, t_sprint_id, ...rest } = p;
-        const bodyUpdates: Record<string, unknown> = { ...rest };
+        const omitKeys = new Set([
+          "id",
+          "confirm",
+          "description",
+          "assignee_id",
+          "tag_id",
+          "feature_id",
+          "t_sprint_id",
+        ]);
+        const bodyUpdates: Record<string, unknown> = Object.fromEntries(
+          Object.entries(p).filter(([k]) => !omitKeys.has(k)),
+        );
 
-        if (description !== undefined) bodyUpdates.background = `<p>${description}</p>`;
-        if (assignee_id !== undefined) bodyUpdates.user_auth_id = assignee_id;
-        if (tag_id !== undefined) bodyUpdates.t_tag_id = tag_id;
-        if (feature_id !== undefined) bodyUpdates.feature_issue = feature_id;
-        if (t_sprint_id !== undefined) bodyUpdates.t_sprint_id = t_sprint_id;
+        if (p.description !== undefined) bodyUpdates.background = `<p>${p.description}</p>`;
+        if (p.assignee_id !== undefined) bodyUpdates.user_auth_id = p.assignee_id;
+        if (p.tag_id !== undefined) bodyUpdates.t_tag_id = p.tag_id;
+        if (p.feature_id !== undefined) bodyUpdates.feature_issue = p.feature_id;
+        if (p.t_sprint_id !== undefined) bodyUpdates.t_sprint_id = p.t_sprint_id;
 
         if (Object.keys(bodyUpdates).length === 0) {
           throw new Error("No update fields provided.");
         }
-        return cli.patch(`/api/v1/issues/${id}`, bodyUpdates);
+        return cli.patch(`/api/v1/issues/${p.id}`, bodyUpdates);
       },
     },
 
@@ -231,7 +366,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         const query: Record<string, string | number> = {};
         if (projectId) query.m_project_id = projectId;
 
-        const res = await cli.get<any>(`/api/v1/issues/${p.id}`, query);
+        const res = await cli.get<RawIssueDetail>(`/api/v1/issues/${p.id}`, query);
         if (!res.data) return res;
 
         const d = res.data;
@@ -269,13 +404,16 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         const query: Record<string, string | number> = {};
         if (cli.userId) query.user_auth_id = cli.userId;
         if (cli.humanisId) query.humanis_id = cli.humanisId;
-        const res = await cli.get<any>("/api/v1/get-team", query, "timebox");
+        const res = await cli.get<RawTeamMember[]>("/api/v1/get-team", query, "timebox");
         if (Array.isArray(res.data)) {
-          res.data = res.data.map((m: any) => ({
-            user_auth_id: m.user_auth_id,
-            nama: m.nama,
-            jabatan: m.jabatan_nama || m.jabatan,
-          }));
+          return {
+            ...res,
+            data: res.data.map((m) => ({
+              user_auth_id: m.user_auth_id,
+              nama: m.nama,
+              jabatan: m.jabatan_nama || m.jabatan,
+            })),
+          };
         }
         return res;
       },
@@ -289,9 +427,12 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         await cli.ensureAuth();
         const query: Record<string, string | number> = {};
         if (cli.userId) query.user_auth_id = cli.userId;
-        const res = await cli.get<any>("/api/v1/get-project", query, "timebox");
+        const res = await cli.get<RawTimeboxProject[]>("/api/v1/get-project", query, "timebox");
         if (Array.isArray(res.data)) {
-          res.data = res.data.map((p: any) => ({ id: p.id, name: p.name }));
+          return {
+            ...res,
+            data: res.data.map((p) => ({ id: p.id, name: p.name })),
+          };
         }
         return res;
       },
@@ -313,9 +454,9 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
           use_cache: p.use_cache !== undefined ? (p.use_cache as boolean) : true,
         };
         if (cli.userId) query.user_auth_id = cli.userId;
-        const res = await cli.get<any>("/api/v1/scheduled", query, "timebox");
+        const res = await cli.get<RawScheduledData>("/api/v1/scheduled", query, "timebox");
         if (res.data) {
-          const mapTask = (t: any) => ({
+          const mapTask = (t: RawTimeboxTask) => ({
             id: t.id,
             name: t.name,
             point: t.point,
@@ -324,10 +465,15 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
             completed: t.completed,
             project_id: t.m_project_id,
           });
-          if (res.data.overdue) res.data.overdue = res.data.overdue.map(mapTask);
-          if (res.data.today) res.data.today = res.data.today.map(mapTask);
-          if (res.data.tomorrow) res.data.tomorrow = res.data.tomorrow.map(mapTask);
-          if (res.data.afterTomorrow) res.data.afterTomorrow = res.data.afterTomorrow.map(mapTask);
+          return {
+            ...res,
+            data: {
+              overdue: res.data.overdue?.map(mapTask),
+              today: res.data.today?.map(mapTask),
+              tomorrow: res.data.tomorrow?.map(mapTask),
+              afterTomorrow: res.data.afterTomorrow?.map(mapTask),
+            },
+          };
         }
         return res;
       },
@@ -345,13 +491,16 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (cli.userId) query.user_auth_id = cli.userId;
         if (cli.humanisId) query.humanis_id = cli.humanisId;
         if (p.yesterDate) query.yesterDate = p.yesterDate as string;
-        const res = await cli.get<any>("/api/v1/my-squad/list", query, "timebox");
+        const res = await cli.get<RawSquadMember[]>("/api/v1/my-squad/list", query, "timebox");
         if (Array.isArray(res.data)) {
-          res.data = res.data.map((s: any) => ({
-            id: s.user_auth_id,
-            name: s.nama,
-            position: s.jabatan_nama || s.jabatan,
-          }));
+          return {
+            ...res,
+            data: res.data.map((s) => ({
+              id: s.user_auth_id,
+              name: s.nama,
+              position: s.jabatan_nama || s.jabatan,
+            })),
+          };
         }
         return res;
       },
@@ -383,10 +532,13 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (!p.confirm) throw new Error("Set confirm: true to proceed with this action.");
         await cli.ensureAuth();
         const id = p.id as number;
-        const body = p.payload as any;
+        const payload = p.payload as Record<string, unknown>;
 
         // Ensure user_auth_id is set in body if available
-        if (cli.userId && !body.user_auth_id) body.user_auth_id = cli.userId;
+        const body = {
+          ...payload,
+          ...(cli.userId && !payload.user_auth_id ? { user_auth_id: cli.userId } : {}),
+        };
 
         return cli.put(`/api/v3/timebox/task/${id}`, body);
       },
@@ -405,7 +557,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const body: Record<string, any> = {
+        const body: Record<string, unknown> = {
           name: p.name,
           description: p.description || "",
           duedate: p.duedate,
@@ -436,7 +588,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/get-date-sprint`, {
+        const res = await cli.get<RawSprint[]>(`/api/v1/get-date-sprint`, {
           m_project_id: p.project_id as number,
           active_sprint: false,
           notStart: true,
@@ -446,7 +598,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (!res.data) return res;
         return {
           ...res,
-          data: res.data.map((s: any) => ({
+          data: res.data.map((s) => ({
             id: s.id,
             name: s.name,
             status: s.status,
@@ -465,11 +617,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v3/project-tag`, { project_id: p.project_id as number });
+        const res = await cli.get<RawTagListData>(`/api/v3/project-tag`, { project_id: p.project_id as number });
         if (!res.data?.list) return res;
         return {
           ...res,
-          data: res.data.list.map((t: any) => ({
+          data: res.data.list.map((t) => ({
             id: t.id,
             name: t.name,
             color: t.color,
@@ -484,11 +636,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       params: {},
       handler: async (cli) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v3/humanis-position`);
+        const res = await cli.get<RawRole[]>(`/api/v3/humanis-position`);
         if (!res.data) return res;
         return {
           ...res,
-          data: res.data.map((r: any) => ({ id: r.id, name: r.name })),
+          data: res.data.map((r) => ({ id: r.id, name: r.name })),
         };
       },
     },
@@ -501,14 +653,14 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/module`, { m_project_id: p.project_id as number });
+        const res = await cli.get<RawModule[]>(`/api/v1/module`, { m_project_id: p.project_id as number });
         if (!res.data) return res;
 
         // Simple mapper for modules
-        const mapModule = (m: any) => ({
+        const mapModule = (m: RawModule) => ({
           id: m.id,
           name: m.ParentFeature || m.ChildName,
-          children: m.ChildFeature ? m.ChildFeature.map((c: any) => ({ id: c.id, name: c.ChildName })) : undefined,
+          children: m.ChildFeature ? m.ChildFeature.map((c) => ({ id: c.id, name: c.ChildName })) : undefined,
         });
 
         return {
@@ -526,7 +678,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, {
+        const res = await cli.get<RawProjectDetail>(`/api/v1/project/${p.project_id}`, {
           id: p.project_id as number,
           with_sa: true,
         });
@@ -538,7 +690,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
             id: res.data.id,
             name: res.data.name,
             description: res.data.description,
-            project_team: res.data.project_team?.map((m: any) => ({
+            project_team: res.data.project_team?.map((m) => ({
               user_id: m.user_auth_id,
               name: m.user?.nama,
               email: m.user?.email,
@@ -557,7 +709,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, {
+        const res = await cli.get<RawProjectDetail>(`/api/v1/project/${p.project_id}`, {
           id: p.project_id as number,
           with_sa: true,
         });
@@ -565,7 +717,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
 
         return {
           ...res,
-          data: (res.data.project_team ?? []).map((m: any) => ({
+          data: (res.data.project_team ?? []).map((m) => ({
             user_id: m.user_auth_id,
             name: m.user?.nama,
             email: m.user?.email,

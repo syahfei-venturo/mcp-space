@@ -74,8 +74,8 @@ export class SpaceVenturoClient {
         body: JSON.stringify({ email: this.email, password: this.password }),
         signal: loginController.signal,
       });
-    } catch (err: any) {
-      if (err.name === "AbortError") throw new Error("Login timed out after 30000ms");
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") throw new Error("Login timed out after 30000ms");
       throw err;
     } finally {
       clearTimeout(loginTimeout);
@@ -152,13 +152,13 @@ export class SpaceVenturoClient {
       }
 
       if (response.status === 204) {
-        return { status_code: 204, data: null as any, message: "No Content", settings: [] };
+        return { status_code: 204, data: null as unknown as T, message: "No Content", settings: [] };
       }
 
       const data = (await response.json()) as ApiResponse<T>;
       return data;
-    } catch (err: any) {
-      if (err.name === "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
         throw new Error(`Request timed out after ${timeoutMs}ms`);
       }
       throw err;
