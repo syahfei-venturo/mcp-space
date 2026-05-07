@@ -5,10 +5,22 @@ import { FunctionDef } from "./registry.js";
 export class SecureSandbox {
   constructor(
     private client: SpaceVenturoClient,
-    private registry: FunctionDef[]
+    private registry: FunctionDef[],
   ) {}
 
   async execute(code: string, timeoutMs = 5000): Promise<unknown> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const wallClockTimeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Execution timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    try {
+      return await Promise.race([this._execute(code, timeoutMs), wallClockTimeout]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async _execute(code: string, timeoutMs: number): Promise<unknown> {
     const QuickJS = await getQuickJS();
     const runtime = QuickJS.newRuntime();
     const vm = runtime.newContext();
@@ -23,65 +35,69 @@ export class SecureSandbox {
     try {
       const result = await Scope.withScopeAsync(async (scope) => {
         // 1. Setup bridge
-        const callRegistryHandle = scope.manage(vm.newFunction("__callRegistry", (nameHandle, paramsJsonHandle) => {
-          const name = vm.getString(nameHandle);
-          const paramsJson = vm.getString(paramsJsonHandle);
+        const callRegistryHandle = scope.manage(
+          vm.newFunction("__callRegistry", (nameHandle, paramsJsonHandle) => {
+            const name = vm.getString(nameHandle);
+            const paramsJson = vm.getString(paramsJsonHandle);
 
-          let params: unknown;
-          try {
-            params = JSON.parse(paramsJson);
-          } catch {
-            const deferred = vm.newPromise();
-            const errHandle = vm.newString(`Invalid JSON params for function ${name}`);
-            deferred.reject(errHandle);
-            errHandle.dispose();
-            runtime.executePendingJobs();
-            const p = deferred.handle.dup();
-            deferred.dispose();
-            return p;
-          }
-
-          const deferred = vm.newPromise();
-
-          const fn = this.registry.find((f) => f.name === name);
-          if (!fn) {
-             const errHandle = vm.newString(`Function ${name} not found`);
-             deferred.reject(errHandle);
-             errHandle.dispose();
-             runtime.executePendingJobs();
-             const p = deferred.handle.dup();
-             deferred.dispose();
-             return p;
-          }
-
-          const callPromise = (async () => {
+            let params: unknown;
             try {
-              const res = await fn.handler(this.client, params as Record<string, unknown>);
-              const resStr = JSON.stringify(res);
-              const resHandle = vm.newString(resStr);
-              deferred.resolve(resHandle);
-              resHandle.dispose();
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : String(err);
-              const errHandle = vm.newString(errMsg);
+              params = JSON.parse(paramsJson);
+            } catch {
+              const deferred = vm.newPromise();
+              const errHandle = vm.newString(`Invalid JSON params for function ${name}`);
               deferred.reject(errHandle);
               errHandle.dispose();
-            } finally {
               runtime.executePendingJobs();
+              const p = deferred.handle.dup();
               deferred.dispose();
+              return p;
             }
-          })();
 
-          pendingCalls.push(callPromise);
-          return deferred.handle.dup();
-        }));
+            const deferred = vm.newPromise();
+
+            const fn = this.registry.find((f) => f.name === name);
+            if (!fn) {
+              const errHandle = vm.newString(`Function ${name} not found`);
+              deferred.reject(errHandle);
+              errHandle.dispose();
+              runtime.executePendingJobs();
+              const p = deferred.handle.dup();
+              deferred.dispose();
+              return p;
+            }
+
+            const callPromise = (async () => {
+              try {
+                const res = await fn.handler(this.client, params as Record<string, unknown>);
+                const resStr = JSON.stringify(res);
+                const resHandle = vm.newString(resStr);
+                deferred.resolve(resHandle);
+                resHandle.dispose();
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                const errHandle = vm.newString(errMsg);
+                deferred.reject(errHandle);
+                errHandle.dispose();
+              } finally {
+                runtime.executePendingJobs();
+                deferred.dispose();
+              }
+            })();
+
+            pendingCalls.push(callPromise);
+            return deferred.handle.dup();
+          }),
+        );
 
         vm.setProp(vm.global, "__callRegistry", callRegistryHandle);
 
         // 2. Setup print (for debugging)
-        const printHandle = scope.manage(vm.newFunction("print", (...args) => {
-          console.error("[Sandbox JS]", ...args.map(h => vm.dump(h)));
-        }));
+        const printHandle = scope.manage(
+          vm.newFunction("print", (...args) => {
+            console.error("[Sandbox JS]", ...args.map((h) => vm.dump(h)));
+          }),
+        );
         vm.setProp(vm.global, "print", printHandle);
 
         // 3. Setup helpers
@@ -92,7 +108,7 @@ export class SecureSandbox {
               return JSON.parse(res);
             };
           };
-          for (const name of ${JSON.stringify(this.registry.map(f => f.name))}) {
+          for (const name of ${JSON.stringify(this.registry.map((f) => f.name))}) {
             globalThis[name] = __makeFn(name);
           }
         `;

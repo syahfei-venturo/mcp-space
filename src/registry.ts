@@ -6,25 +6,33 @@
 import { SpaceVenturoClient } from "./client.js";
 import { z } from "zod";
 
-const ProjectSchema = z.object({
-  id: z.number().or(z.string()),
-  name: z.string(),
-  slug: z.string().nullable().optional(),
-  id_project_team: z.number().or(z.string()).nullable().optional()
-}).passthrough();
+const ProjectSchema = z
+  .object({
+    id: z.number().or(z.string()),
+    name: z.string(),
+    slug: z.string().nullable().optional(),
+    id_project_team: z.number().or(z.string()).nullable().optional(),
+  })
+  .passthrough();
 
-const IssueSchema = z.object({
-  id: z.number().or(z.string()),
-  name: z.string(),
-  code_issue: z.string().nullable().optional(),
-  point: z.number().nullable().optional().or(z.string()),
-  duedate: z.string().nullable().optional(),
-  user_auth_name: z.string().nullable().optional(),
-  tag_name: z.string().nullable().optional(),
-  status_sprint: z.object({
-    name: z.string().nullable().optional()
-  }).passthrough().nullable().optional()
-}).passthrough();
+const IssueSchema = z
+  .object({
+    id: z.number().or(z.string()),
+    name: z.string(),
+    code_issue: z.string().nullable().optional(),
+    point: z.number().nullable().optional().or(z.string()),
+    duedate: z.string().nullable().optional(),
+    user_auth_name: z.string().nullable().optional(),
+    tag_name: z.string().nullable().optional(),
+    status_sprint: z
+      .object({
+        name: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
 
 export interface ParamDef {
   type: string;
@@ -54,16 +62,16 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         const query: Record<string, string | number> = {};
         if (cli.userId) query.user_auth_id = cli.userId;
         if (cli.aksesNama) query.akses_nama = cli.aksesNama;
-        
+
         const res = await cli.get<any>("/api/v1/project-team", query);
         if (res.data?.dataProject) {
-            const parsedData = z.array(ProjectSchema).parse(res.data.dataProject);
-            res.data = parsedData.map((p) => ({
-                id: p.id,
-                name: p.name,
-                slug: p.slug,
-                id_project_team: p.id_project_team
-            }));
+          const parsedData = z.array(ProjectSchema).parse(res.data.dataProject);
+          res.data = parsedData.map((p) => ({
+            id: p.id,
+            name: p.name,
+            slug: p.slug,
+            id_project_team: p.id_project_team,
+          }));
         }
         return res;
       },
@@ -73,16 +81,21 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
 
     {
       name: "get_sprint_issues",
-      description: "List all sprint issues / tasks filtered by date range. Response is filtered to show essential fields only.",
+      description:
+        "List all sprint issues / tasks filtered by date range. Response is filtered to show essential fields only.",
       params: {
         project_id: { type: "number", description: "Filter by project ID", required: false },
-        start_date: { type: "string", description: "Filter start date YYYY-MM-DD (defaults to today)", required: false },
+        start_date: {
+          type: "string",
+          description: "Filter start date YYYY-MM-DD (defaults to today)",
+          required: false,
+        },
         end_date: { type: "string", description: "Filter end date YYYY-MM-DD (defaults to today)", required: false },
         isUncategorized: { type: "boolean", description: "Show uncategorized issues", required: false },
         department_id: { type: "number", description: "Filter by department ID", required: false },
       },
       handler: async (cli, p) => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date().toISOString().split("T")[0];
         const query: Record<string, string | number | boolean | undefined | null> = {
           project_id: (p.project_id as number) ?? cli.defaultProjectId,
           start_date: (p.start_date as string) ?? today,
@@ -94,21 +107,21 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         query.isUncategorized = p.isUncategorized !== undefined ? (p.isUncategorized as boolean) : false;
 
         if (p.department_id !== undefined) query.department_id = p.department_id as number;
-        
+
         const res = await cli.get<any>("/api/v3/sprint-issues", query);
-        
+
         if (res.data?.dataIssues) {
-            const parsedIssues = z.array(IssueSchema).parse(res.data.dataIssues);
-            res.data.dataIssues = parsedIssues.map((issue) => ({
-                id: issue.id,
-                name: issue.name,
-                code: issue.code_issue,
-                point: issue.point,
-                duedate: issue.duedate,
-                assignee: issue.user_auth_name,
-                tag: issue.tag_name,
-                status: issue.status_sprint?.name || "Unknown"
-            }));
+          const parsedIssues = z.array(IssueSchema).parse(res.data.dataIssues);
+          res.data.dataIssues = parsedIssues.map((issue) => ({
+            id: issue.id,
+            name: issue.name,
+            code: issue.code_issue,
+            point: issue.point,
+            duedate: issue.duedate,
+            assignee: issue.user_auth_name,
+            tag: issue.tag_name,
+            status: issue.status_sprint?.name || "Unknown",
+          }));
         }
         return res;
       },
@@ -133,20 +146,20 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         const projectId = (p.project_id as number) ?? cli.defaultProjectId;
         if (!projectId) throw new Error("project_id is required either via arguments or default settings");
         const body = {
-            name: p.name,
-            m_project_id: String(projectId),
-            t_sprint_id: (p.t_sprint_id as number) ?? null,
-            background: p.description ? `<p>${p.description}</p>` : "<p></p>",
-            user_auth_id: (p.assignee_id as number) ?? 0,
-            created_by: cli.userId,
-            point: (p.point as number) ?? 0,
-            t_tag_id: (p.tag_id as number) ?? null,
-            feature_issue: (p.feature_id as number) ?? null,
-            type: "1",
-            duedate: (p.duedate as string) ?? null,
-            issues_acceptance: [],
-            case_id: 0,
-            case_step_id: null,
+          name: p.name,
+          m_project_id: String(projectId),
+          t_sprint_id: (p.t_sprint_id as number) ?? null,
+          background: p.description ? `<p>${p.description}</p>` : "<p></p>",
+          user_auth_id: (p.assignee_id as number) ?? 0,
+          created_by: cli.userId,
+          point: (p.point as number) ?? 0,
+          t_tag_id: (p.tag_id as number) ?? null,
+          feature_issue: (p.feature_id as number) ?? null,
+          type: "1",
+          duedate: (p.duedate as string) ?? null,
+          issues_acceptance: [],
+          case_id: 0,
+          case_step_id: null,
         };
         return cli.post("/api/v1/issues", body);
       },
@@ -163,7 +176,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         point: { type: "number", description: "New story points (optional)", required: false },
         tag_id: { type: "number", description: "New tag ID (optional)", required: false },
         duedate: { type: "string", description: "New due date in YYYY-MM-DD (optional)", required: false },
-        t_sprint_id: { type: "number", description: "New sprint ID (optional, null to move to backlog)", required: false },
+        t_sprint_id: {
+          type: "number",
+          description: "New sprint ID (optional, null to move to backlog)",
+          required: false,
+        },
         feature_id: { type: "number", description: "New feature ID (optional)", required: false },
         confirm: { type: "boolean", description: "Must be true to confirm update", required: true },
       },
@@ -181,7 +198,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (t_sprint_id !== undefined) bodyUpdates.t_sprint_id = t_sprint_id;
 
         if (Object.keys(bodyUpdates).length === 0) {
-            throw new Error("No update fields provided.");
+          throw new Error("No update fields provided.");
         }
         return cli.patch(`/api/v1/issues/${id}`, bodyUpdates);
       },
@@ -201,6 +218,46 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
     },
 
+    {
+      name: "get_issue",
+      description: "Get full detail of a single issue by ID.",
+      params: {
+        id: { type: "number", description: "Issue internal ID", required: true },
+        project_id: { type: "number", description: "Project ID (m_project_id)", required: false },
+      },
+      handler: async (cli, p) => {
+        await cli.ensureAuth();
+        const projectId = (p.project_id as number) ?? cli.defaultProjectId;
+        const query: Record<string, string | number> = {};
+        if (projectId) query.m_project_id = projectId;
+
+        const res = await cli.get<any>(`/api/v1/issues/${p.id}`, query);
+        if (!res.data) return res;
+
+        const d = res.data;
+        const description = d.background ? d.background.replace(/<[^>]*>/g, "").trim() : null;
+        return {
+          ...res,
+          data: {
+            id: d.id,
+            code: d.code_issue,
+            name: d.name,
+            description: description || null,
+            sprint: d.status_sprint?.name ?? null,
+            project: d.project_name,
+            assignee: d.user_auth_name,
+            point: d.point,
+            tag: d.tag_name,
+            duedate: d.duedate,
+            is_solved: Boolean(d.is_solved),
+            is_urgent: Boolean(d.is_urgent),
+            created_at: d.created_at,
+            updated_at: d.updated_at,
+          },
+        };
+      },
+    },
+
     // ── Timebox ───────────────────────────────────────────────────────────
 
     {
@@ -214,11 +271,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (cli.humanisId) query.humanis_id = cli.humanisId;
         const res = await cli.get<any>("/api/v1/get-team", query, "timebox");
         if (Array.isArray(res.data)) {
-            res.data = res.data.map((m: any) => ({
-                user_auth_id: m.user_auth_id,
-                nama: m.nama,
-                jabatan: m.jabatan_nama || m.jabatan
-            }));
+          res.data = res.data.map((m: any) => ({
+            user_auth_id: m.user_auth_id,
+            nama: m.nama,
+            jabatan: m.jabatan_nama || m.jabatan,
+          }));
         }
         return res;
       },
@@ -234,7 +291,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (cli.userId) query.user_auth_id = cli.userId;
         const res = await cli.get<any>("/api/v1/get-project", query, "timebox");
         if (Array.isArray(res.data)) {
-            res.data = res.data.map((p: any) => ({ id: p.id, name: p.name }));
+          res.data = res.data.map((p: any) => ({ id: p.id, name: p.name }));
         }
         return res;
       },
@@ -258,19 +315,19 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (cli.userId) query.user_auth_id = cli.userId;
         const res = await cli.get<any>("/api/v1/scheduled", query, "timebox");
         if (res.data) {
-            const mapTask = (t: any) => ({
-                id: t.id,
-                name: t.name,
-                point: t.point,
-                jam: t.jam,
-                date: t.date,
-                completed: t.completed,
-                project_id: t.m_project_id
-            });
-            if (res.data.overdue) res.data.overdue = res.data.overdue.map(mapTask);
-            if (res.data.today) res.data.today = res.data.today.map(mapTask);
-            if (res.data.tomorrow) res.data.tomorrow = res.data.tomorrow.map(mapTask);
-            if (res.data.afterTomorrow) res.data.afterTomorrow = res.data.afterTomorrow.map(mapTask);
+          const mapTask = (t: any) => ({
+            id: t.id,
+            name: t.name,
+            point: t.point,
+            jam: t.jam,
+            date: t.date,
+            completed: t.completed,
+            project_id: t.m_project_id,
+          });
+          if (res.data.overdue) res.data.overdue = res.data.overdue.map(mapTask);
+          if (res.data.today) res.data.today = res.data.today.map(mapTask);
+          if (res.data.tomorrow) res.data.tomorrow = res.data.tomorrow.map(mapTask);
+          if (res.data.afterTomorrow) res.data.afterTomorrow = res.data.afterTomorrow.map(mapTask);
         }
         return res;
       },
@@ -290,11 +347,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (p.yesterDate) query.yesterDate = p.yesterDate as string;
         const res = await cli.get<any>("/api/v1/my-squad/list", query, "timebox");
         if (Array.isArray(res.data)) {
-            res.data = res.data.map((s: any) => ({
-                id: s.user_auth_id,
-                name: s.nama,
-                position: s.jabatan_nama || s.jabatan
-            }));
+          res.data = res.data.map((s: any) => ({
+            id: s.user_auth_id,
+            name: s.nama,
+            position: s.jabatan_nama || s.jabatan,
+          }));
         }
         return res;
       },
@@ -327,10 +384,10 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         await cli.ensureAuth();
         const id = p.id as number;
         const body = p.payload as any;
-        
+
         // Ensure user_auth_id is set in body if available
         if (cli.userId && !body.user_auth_id) body.user_auth_id = cli.userId;
-        
+
         return cli.put(`/api/v3/timebox/task/${id}`, body);
       },
     },
@@ -364,7 +421,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
           status: "1",
           results_url: [],
         };
-        
+
         return cli.post("/api/v3/timebox/task", body);
       },
     },
@@ -383,9 +440,9 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
           m_project_id: p.project_id as number,
           active_sprint: false,
           notStart: true,
-          sortByActive: true
+          sortByActive: true,
         });
-        
+
         if (!res.data) return res;
         return {
           ...res,
@@ -394,13 +451,11 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
             name: s.name,
             status: s.status,
             start_date: s.start_date,
-            end_date: s.end_date
-          }))
+            end_date: s.end_date,
+          })),
         };
       },
     },
-
-
 
     {
       name: "get_project_tags",
@@ -417,8 +472,8 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
           data: res.data.list.map((t: any) => ({
             id: t.id,
             name: t.name,
-            color: t.color
-          }))
+            color: t.color,
+          })),
         };
       },
     },
@@ -433,7 +488,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         if (!res.data) return res;
         return {
           ...res,
-          data: res.data.map((r: any) => ({ id: r.id, name: r.name }))
+          data: res.data.map((r: any) => ({ id: r.id, name: r.name })),
         };
       },
     },
@@ -448,17 +503,17 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
         await cli.ensureAuth();
         const res = await cli.get<any>(`/api/v1/module`, { m_project_id: p.project_id as number });
         if (!res.data) return res;
-        
+
         // Simple mapper for modules
         const mapModule = (m: any) => ({
           id: m.id,
           name: m.ParentFeature || m.ChildName,
-          children: m.ChildFeature ? m.ChildFeature.map((c: any) => ({ id: c.id, name: c.ChildName })) : undefined
+          children: m.ChildFeature ? m.ChildFeature.map((c: any) => ({ id: c.id, name: c.ChildName })) : undefined,
         });
 
         return {
           ...res,
-          data: res.data.map(mapModule)
+          data: res.data.map(mapModule),
         };
       },
     },
@@ -471,9 +526,12 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, { id: p.project_id as number, with_sa: true });
+        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, {
+          id: p.project_id as number,
+          with_sa: true,
+        });
         if (!res.data) return res;
-        
+
         return {
           ...res,
           data: {
@@ -484,9 +542,9 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
               user_id: m.user_auth_id,
               name: m.user?.nama,
               email: m.user?.email,
-              role_id: m.m_roles_id
-            }))
-          }
+              role_id: m.m_roles_id,
+            })),
+          },
         };
       },
     },
@@ -499,7 +557,10 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
       },
       handler: async (cli, p) => {
         await cli.ensureAuth();
-        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, { id: p.project_id as number, with_sa: true });
+        const res = await cli.get<any>(`/api/v1/project/${p.project_id}`, {
+          id: p.project_id as number,
+          with_sa: true,
+        });
         if (!res.data) return res;
 
         return {
@@ -509,7 +570,7 @@ export function buildRegistry(client: SpaceVenturoClient): FunctionDef[] {
             name: m.user?.nama,
             email: m.user?.email,
             role_id: m.m_roles_id,
-          }))
+          })),
         };
       },
     },

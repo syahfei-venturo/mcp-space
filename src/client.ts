@@ -50,8 +50,8 @@ export class SpaceVenturoClient {
     this.timeboxBaseUrl = (process.env.TIMEBOX_API_URL ?? "https://timebox-api.venturo.id").replace(/\/$/, "");
     this.email = process.env.SPACE_API_EMAIL ?? "";
     this.password = process.env.SPACE_API_PASSWORD ?? "";
-    this.defaultProjectId = process.env.SPACE_API_DEFAULT_PROJECT_ID 
-      ? parseInt(process.env.SPACE_API_DEFAULT_PROJECT_ID, 10) 
+    this.defaultProjectId = process.env.SPACE_API_DEFAULT_PROJECT_ID
+      ? parseInt(process.env.SPACE_API_DEFAULT_PROJECT_ID, 10)
       : undefined;
   }
 
@@ -59,14 +59,27 @@ export class SpaceVenturoClient {
 
   private async login(): Promise<void> {
     if (!this.email || !this.password) {
-      throw new Error("Autentikasi Gagal: SPACE_API_EMAIL dan SPACE_API_PASSWORD belum di-setting di file .env. Anda (AI) harus meminta User untuk mengatur kredensial ini terlebih dahulu.");
+      throw new Error(
+        "Autentikasi Gagal: SPACE_API_EMAIL dan SPACE_API_PASSWORD belum di-setting di file .env. Anda (AI) harus meminta User untuk mengatur kredensial ini terlebih dahulu.",
+      );
     }
 
-    const res = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: this.email, password: this.password }),
-    });
+    const loginController = new AbortController();
+    const loginTimeout = setTimeout(() => loginController.abort(), 30000);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: this.email, password: this.password }),
+        signal: loginController.signal,
+      });
+    } catch (err: any) {
+      if (err.name === "AbortError") throw new Error("Login timed out after 30000ms");
+      throw err;
+    } finally {
+      clearTimeout(loginTimeout);
+    }
 
     if (!res.ok) {
       throw new Error(`Login failed: ${res.status} ${await res.text()}`);
@@ -74,7 +87,7 @@ export class SpaceVenturoClient {
 
     const resJson = (await res.json()) as LoginResponse;
     if (resJson.status_code !== 200 || !resJson.data || !resJson.data.access_token) {
-       throw new Error(`Login failed, unexpected response structure: ${JSON.stringify(resJson)}`);
+      throw new Error(`Login failed, unexpected response structure: ${JSON.stringify(resJson)}`);
     }
 
     this.accessToken = resJson.data.access_token;
@@ -95,15 +108,15 @@ export class SpaceVenturoClient {
     path: string,
     options: RequestInit = {},
     service: "space" | "timebox" = "space",
-    timeoutMs: number = 60000 // Default 60 seconds
+    timeoutMs: number = 30000, // Default 30 seconds
   ): Promise<ApiResponse<T>> {
     await this.ensureAuth();
 
     const baseUrl = service === "timebox" ? this.timeboxBaseUrl : this.baseUrl;
     const url = `${baseUrl}${path}`;
-    
+
     // Log URL to stderr for transparency
-    console.error(`[MCP] Requesting ${options.method || 'GET'} ${url}`);
+    console.error(`[MCP] Requesting ${options.method || "GET"} ${url}`);
 
     const headers = {
       ...options.headers,
@@ -112,6 +125,7 @@ export class SpaceVenturoClient {
       "Content-Type": "application/json",
     } as Record<string, string>;
 
+    const startTime = Date.now();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -124,10 +138,12 @@ export class SpaceVenturoClient {
 
       if (response.status === 401) {
         clearTimeout(timeoutId);
-        // Token expired? Try re-login once.
+        // Token expired? Re-login and retry once, sharing the original timeout budget.
+        const elapsed = Date.now() - startTime;
+        const remaining = Math.max(timeoutMs - elapsed, 5000);
         this.accessToken = null;
         await this.login();
-        return this.request<T>(path, options, service, timeoutMs);
+        return this.request<T>(path, options, service, remaining);
       }
 
       if (!response.ok) {
@@ -142,7 +158,7 @@ export class SpaceVenturoClient {
       const data = (await response.json()) as ApiResponse<T>;
       return data;
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      if (err.name === "AbortError") {
         throw new Error(`Request timed out after ${timeoutMs}ms`);
       }
       throw err;
@@ -155,7 +171,7 @@ export class SpaceVenturoClient {
     path: string,
     params: Record<string, string | number | boolean | undefined | null> = {},
     service: "space" | "timebox" = "space",
-    timeoutMs: number = 60000
+    timeoutMs: number = 30000,
   ): Promise<ApiResponse<T>> {
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -169,19 +185,43 @@ export class SpaceVenturoClient {
     return this.request<T>(fullPath, { method: "GET" }, service, timeoutMs);
   }
 
-  async post<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+  async post<T>(
+    path: string,
+    body?: unknown,
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 30000,
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
   }
 
-  async put<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+  async put<T>(
+    path: string,
+    body?: unknown,
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 30000,
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
   }
 
-  async patch<T>(path: string, body?: unknown, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
-    return this.request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, service, timeoutMs);
+  async patch<T>(
+    path: string,
+    body?: unknown,
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 30000,
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(
+      path,
+      { method: "PATCH", body: body ? JSON.stringify(body) : undefined },
+      service,
+      timeoutMs,
+    );
   }
 
-  async delete<T>(path: string, service: "space" | "timebox" = "space", timeoutMs: number = 60000): Promise<ApiResponse<T>> {
+  async delete<T>(
+    path: string,
+    service: "space" | "timebox" = "space",
+    timeoutMs: number = 30000,
+  ): Promise<ApiResponse<T>> {
     return this.request<T>(path, { method: "DELETE" }, service, timeoutMs);
   }
 }
