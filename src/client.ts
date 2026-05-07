@@ -108,7 +108,8 @@ export class SpaceVenturoClient {
     path: string,
     options: RequestInit = {},
     service: "space" | "timebox" = "space",
-    timeoutMs: number = 30000, // Default 30 seconds
+    timeoutMs: number = 30000,
+    retried = false,
   ): Promise<ApiResponse<T>> {
     await this.ensureAuth();
 
@@ -118,12 +119,11 @@ export class SpaceVenturoClient {
     // Log URL to stderr for transparency
     console.error(`[MCP] Requesting ${options.method || "GET"} ${url}`);
 
-    const headers = {
-      ...options.headers,
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${this.accessToken}`,
       Accept: "application/json",
-      "Content-Type": "application/json",
-    } as Record<string, string>;
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+    };
 
     const startTime = Date.now();
     const controller = new AbortController();
@@ -138,12 +138,14 @@ export class SpaceVenturoClient {
 
       if (response.status === 401) {
         clearTimeout(timeoutId);
-        // Token expired? Re-login and retry once, sharing the original timeout budget.
+        if (retried) {
+          throw new Error("Authentication failed after retry — check SPACE_API_EMAIL and SPACE_API_PASSWORD");
+        }
         const elapsed = Date.now() - startTime;
         const remaining = Math.max(timeoutMs - elapsed, 5000);
         this.accessToken = null;
         await this.login();
-        return this.request<T>(path, options, service, remaining);
+        return this.request<T>(path, options, service, remaining, true);
       }
 
       if (!response.ok) {

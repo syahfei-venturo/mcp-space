@@ -151,6 +151,74 @@ export interface ParamDef {
   enum?: string[];
 }
 
+/**
+ * Validates and coerces raw params against a ParamDef schema.
+ * Throws on missing required params or type mismatches.
+ */
+export function validateParams(params: unknown, schema: Record<string, ParamDef>): Record<string, unknown> {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    throw new Error("Parameters must be a plain object");
+  }
+
+  const raw = params as Record<string, unknown>;
+  const validated: Record<string, unknown> = {};
+
+  for (const [key, def] of Object.entries(schema)) {
+    const value = raw[key];
+
+    if (value === undefined || value === null) {
+      if (def.required) {
+        throw new Error(`Missing required parameter: "${key}"`);
+      }
+      continue;
+    }
+
+    switch (def.type) {
+      case "number": {
+        if (typeof value === "number" && !Number.isNaN(value)) {
+          validated[key] = value;
+        } else if (typeof value === "string") {
+          const num = Number(value);
+          if (Number.isNaN(num)) {
+            throw new Error(`Parameter "${key}" must be a number, got string "${value}"`);
+          }
+          validated[key] = num;
+        } else {
+          throw new Error(`Parameter "${key}" must be a number, got ${typeof value}`);
+        }
+        break;
+      }
+      case "string":
+        validated[key] = String(value);
+        break;
+      case "boolean":
+        if (typeof value === "boolean") {
+          validated[key] = value;
+        } else if (value === "true" || value === "false") {
+          validated[key] = value === "true";
+        } else {
+          throw new Error(`Parameter "${key}" must be a boolean, got ${typeof value}`);
+        }
+        break;
+      case "object":
+        if (typeof value === "object") {
+          validated[key] = value;
+        } else {
+          throw new Error(`Parameter "${key}" must be an object, got ${typeof value}`);
+        }
+        break;
+      default:
+        validated[key] = value;
+    }
+
+    if (def.enum && !def.enum.includes(String(validated[key]))) {
+      throw new Error(`Parameter "${key}" must be one of: ${def.enum.join(", ")}`);
+    }
+  }
+
+  return validated;
+}
+
 export interface FunctionDef {
   name: string;
   description: string;
@@ -361,7 +429,6 @@ export function buildRegistry(): FunctionDef[] {
         project_id: { type: "number", description: "Project ID (m_project_id)", required: false },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const projectId = (p.project_id as number) ?? cli.defaultProjectId;
         const query: Record<string, string | number> = {};
         if (projectId) query.m_project_id = projectId;
@@ -587,7 +654,6 @@ export function buildRegistry(): FunctionDef[] {
         project_id: { type: "number", description: "The project ID", required: true },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawSprint[]>(`/api/v1/get-date-sprint`, {
           m_project_id: p.project_id as number,
           active_sprint: false,
@@ -616,7 +682,6 @@ export function buildRegistry(): FunctionDef[] {
         project_id: { type: "number", description: "The project ID", required: true },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawTagListData>(`/api/v3/project-tag`, { project_id: p.project_id as number });
         if (!res.data?.list) return res;
         return {
@@ -635,7 +700,6 @@ export function buildRegistry(): FunctionDef[] {
       description: "Get list of available project roles (humanis positions).",
       params: {},
       handler: async (cli) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawRole[]>(`/api/v3/humanis-position`);
         if (!res.data) return res;
         return {
@@ -652,7 +716,6 @@ export function buildRegistry(): FunctionDef[] {
         project_id: { type: "number", description: "The project ID", required: true },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawModule[]>(`/api/v1/module`, { m_project_id: p.project_id as number });
         if (!res.data) return res;
 
@@ -677,7 +740,6 @@ export function buildRegistry(): FunctionDef[] {
         project_id: { type: "number", description: "The project ID", required: true },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawProjectDetail>(`/api/v1/project/${p.project_id}`, {
           id: p.project_id as number,
           with_sa: true,
@@ -703,12 +765,12 @@ export function buildRegistry(): FunctionDef[] {
 
     {
       name: "get_project_team",
-      description: "List members belonging to a specific project. Use this to find assignee_id (user_id).",
+      description:
+        "List members belonging to a specific project. Use this to find assignee_id (user_id). Note: get_project_details also returns team data.",
       params: {
         project_id: { type: "number", description: "The project ID", required: true },
       },
       handler: async (cli, p) => {
-        await cli.ensureAuth();
         const res = await cli.get<RawProjectDetail>(`/api/v1/project/${p.project_id}`, {
           id: p.project_id as number,
           with_sa: true,

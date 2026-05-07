@@ -1,6 +1,6 @@
 import { getQuickJS, Scope } from "quickjs-emscripten";
 import { SpaceVenturoClient } from "./client.js";
-import { FunctionDef } from "./registry.js";
+import { FunctionDef, validateParams } from "./registry.js";
 
 export class SecureSandbox {
   constructor(
@@ -27,7 +27,7 @@ export class SecureSandbox {
 
     // Interrupt handler to enforce CPU timeout
     const deadline = Date.now() + timeoutMs;
-    runtime.setInterruptHandler(() => Date.now() > deadline || undefined);
+    runtime.setInterruptHandler(() => Date.now() > deadline);
 
     // Track pending host calls to ensure they are cleaned up before vm.dispose()
     const pendingCalls: Promise<void>[] = [];
@@ -69,7 +69,8 @@ export class SecureSandbox {
 
             const callPromise = (async () => {
               try {
-                const res = await fn.handler(this.client, params as Record<string, unknown>);
+                const validatedParams = validateParams(params, fn.params);
+                const res = await fn.handler(this.client, validatedParams);
                 const resStr = JSON.stringify(res);
                 const resHandle = vm.newString(resStr);
                 deferred.resolve(resHandle);

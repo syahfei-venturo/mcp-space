@@ -95,6 +95,7 @@ Use \`return\` to return a value — the result will be serialized as JSON.`,
     {
       code: z
         .string()
+        .max(50000, "Code exceeds 50 000 character limit")
         .describe(
           "JavaScript code to execute. All registry functions are available as async functions. Use `return` to return a value.",
         ),
